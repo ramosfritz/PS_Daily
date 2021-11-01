@@ -1,0 +1,697 @@
+get-host
+
+$PSVersionTable.PSVersion 
+
+##Get Memory Utilization## 
+Get-WmiObject WIN32_PROCESS | Sort-Object -Property ws -Descending | Select-Object -first 5 ProcessID,Name,WS
+
+
+###Get CPU usage###
+Get-Counter -ComputerName nc-ph12 '\Process(*)\% Processor Time' `
+    | Select-Object -ExpandProperty countersamples `
+    | Select-Object -Property instancename, cookedvalue `
+    | Sort-Object -Property cookedvalue -Descending | Select-Object -First 20 `
+    | ft InstanceName,@{L='CPU';E={($_.Cookedvalue/100).toString('P')}} -AutoSize
+#####Get CPU usage
+$NumberOfLogicalProcessors=(Get-WmiObject -class Win32_processor | Measure-Object -Sum NumberOfLogicalProcessors).Sum
+(Get-Counter '\Process(*)\% Processor Time').Countersamples | Where cookedvalue -gt ($NumberOfLogicalProcessors*10) | Sort cookedvalue -Desc | ft -a instancename, @{Name='CPU %';Expr={[Math]::Round($_.CookedValue / $NumberOfLogicalProcessors)}}
+
+********************************************************************************************************************************************************************************************************
+    
+##Link##
+https://www.powershellbros.com/get-memory-utilization-report-using-powershell/
+
+********************************************************************************************************************************************************************************************************
+##Total Memory in Percentage 
+$CompObject =  Get-WmiObject -Class WIN32_OperatingSystem
+ $Memory = ((($CompObject.TotalVisibleMemorySize - $CompObject.FreePhysicalMemory)*100)/ $CompObject.TotalVisibleMemorySize)
+ 
+ Write-Host "Memory usage in Percentage:" $Memory
+        
+ # Top 5 process Memory Usage (MB)
+ $processMemoryUsage = Get-WmiObject WIN32_PROCESS | Sort-Object -Property ws -Descending | Select-Object -first 5 processname, @{Name="Mem Usage(MB)";Expression={[math]::round($_.ws / 1mb)}}
+ $processMemoryUsage
+
+
+##Link## 
+https://shellgeek.com/powershell-get-memory-usage/
+************************************************************************************************************************************************************************************************************************************
+###Get disk space info## 
+
+Get-WmiObject -Class Win32_logicaldisk -Filter "DriveType = '3'" | 
+Select-Object -Property DeviceID, DriveType, VolumeName, 
+@{L='FreeSpaceGB';E={"{0:N2}" -f ($_.FreeSpace /1GB)}},
+@{L="Capacity";E={"{0:N2}" -f ($_.Size/1GB)}}
+###################################################
+
+
+**************************************************************************************
+
+
+Use the Enter-PSSession cmdlet to connect to a remote session and manage it
+interactively:
+PS > Enter-PSSession Lee-Desk
+[lee-desk]: PS E:\Lee> Get-Process -Name PowerShell 
+
+If your current account does not have access to the remote computer, you can use the
+-Credential parameter to supply alternate credentials:
+PS > $cred = Get-Credential LEE-DESK\Lee
+PS > Enter-PSSession Lee-Desk -Cred $cred
+
+
+#Get Event log 
+Get-WinEvent Application -MaxEvents 10 |
+Format-Table ProviderName,Id,Message -Auto
+
+*************************************************************************
+#Restart a computer 
+Restart-Computer -ComputerName SRV1 -Force
+
+#different command to reboot computer
+Invoke-CimMethod -ComputerName SRV1 -ClassName 'Win32_OperatingSystem' -MethodName 'Reboot'
+
+***********************************************************************************************************
+#Restarting Multiple Systems in Parallel
+$ComputerArray | ForEach-Object -Parallel {
+    Restart-Computer -ComputerName $_ -Force
+} -ThrottleLimit 3
+
+
+***********************************************************************************************************
+#wait for the computer to restart before continuing with a script
+Restart-Computer -ComputerName Computer -Wait -For Wmi
+
+#Get last boot up time 
+Get-WmiObject -Class Win32_OperatingSystem -ComputerName localhost | 
+Select-Object -Property @{n="Last Boot Time";
+e={[Management.ManagementDateTimeConverter]::ToDateTime($_.LastBootUpTime)}} 
+
+#Get LastBoot up time of remote computers
+Get-CimInstance -ClassName win32_operatingsystem -ComputerName BHMSQL03, BHMSQL04 | select csname, lastbootuptime
+
+Get-CimInstance -ClassName win32_operatingsystem -ComputerName BHMSQL03, localhost | select csname, lastbootuptime
+
+
+
+#Get event logs 
+Get-EventLog System -Newest 10 | Format-Table Index,Source,Message -Auto
+Get-EventLog Application -Newest 10 | Format-Table Index,Source,Message -Auto
+*****************************************************************************************************************
+#Get EventLog by Error Type
+Get-EventLog System -Newest 30 -EntryType Error | Format-Table Index,Source,Message -Auto
+
+Get-EventLog Application -Newest 30 -EntryType Error | Format-Table Index,Source,Message -Auto
+###check event for shutdown/restart###
+Get-WinEvent -FilterHashtable @{logname = 'System'; id = 1074} | Format-Table -wrap
+
+Get-WinEvent -FilterHashtable @{logname = 'System'; id = 1074, 6005, 6006, 6008} -MaxEvents 6 | Format-Table -wrap
+###check event for shutdown/restart first 10###
+Get-WinEvent -FilterHashtable @{logname = 'System'; id = 1074} -MaxEvents 10| Format-Table -wrap
+
+Get-WinEvent -FilterHashtable @{logname = 'System'; id = 1073} -MaxEvents 10| Format-Table -wrap
+
+##network failure event 
+Get-WinEvent -FilterHashtable @{logname = 'System'; id = 55} -MaxEvents 10| Format-Table -wrap
+
+##network failure event , gridview output
+Get-WinEvent -FilterHashtable @{logname = 'System'; id = 55} -MaxEvents 10| Out-GridView
+
+check restart/shutdown event
+Get-WinEvent -FilterHashtable @{logname = 'System'; id = 1073, 1074} -MaxEvents 10| Format-Table -wrap
+
+Get-WinEvent -FilterHashtable @{logname = 'Application'; id = 1073, 1074} -MaxEvents 10| Format-Table -wrap
+###check shutdown history generic #### 
+Get-EventLog -LogName system -Source user32 | group EventID    
+
+
+Get-WinEvent -Logname Application -MaxEvents 100 | Where { $_.LevelDisplayName -eq "Error" } | Format-Table -Property TimeCreated, Id, Message -AutoSize 
+
+Get-WinEvent -Logname System -MaxEvents 100 | Where { $_.LevelDisplayName -eq "Error" } | Format-Table -Property TimeCreated, Id, Message -AutoSize 
+
+
+Find-Module -Name '*WSUS*' | Format-Table -AutoSize
+
+##when was a user logged in 
+Get-EventLog system -after (get-date).AddDays(-1) | where {$_.InstanceId -eq 7001} 
+
+##when was a the system turned on 
+$today = get-date -Hour 0 -Minute 0;
+Get-EventLog system -after $today | sort -Descending | select -First 1 
+
+
+get-winevent -listlog *AppLock*
+
+Get-WinEvent -listlog Application | Format-List -property * 
+
+Get-WinEvent -Path "C:\Tracing\TraceLog.etl" -Oldest
+*****************************************************************************************************************
+####check event for shutdown details ####
+Get-EventLog -LogName system -Source user32 -Newest 1 | fl *
+
+##Time Generated 
+Get-EventLog -LogName system -Source user32 | Select TimeGenerated, Message 
+
+Get-EventLog -LogName system -Source user32 | Select TimeGenerated, Message | sort message
+
+
+Get-EventLog -LogName system -Source user32 | Select TimeGenerated, Message | sort message | ft -Wrap
+********************************************************************************************-
+Get-EventLog Application -Newest 10 | Group-Object Message | Sort-Object -Desc Count
+Get-EventLog System -Newest 10 | Group-Object Message | Sort-Object -Desc Count
+
+#Get event log using source
+Get-EventLog Application -Newest 10 | Group-Object Source
+************************************************************************************************
+##Get windows updates 
+Get-hotfix | Sort-Object -Descending -Property InstalledOn -ErrorAction SilentlyContinue
+######################
+************************************************************************************************
+#check windows updates 
+wmic qfe list
+
+#check hotfixes 
+get-wmiobject -class win32_quickfixengineering
+
+*************************************************************************************
+#Get Hotfix only
+Get-HotFix | Sort-Object HotFixID | Format-Table –AutoSize 
+
+Get-HotFix | Sort-Object HotFixID -Descending| Format-Table –AutoSize 
+##################################
+# http://blogs.technet.com/b/tmintner/archive/2006/07/07/440729.aspx
+
+# http://www.gfi.com/blog/windows-powershell-extracting-strings-using-regular-expressions/
+
+
+
+(Get-HotFix | Sort-Object -Property InstalledOn)[-1] 
+
+wmic qfe list full /format:table
+
+
+wmic qfe list brief | find “KB4495667” 
+
+
+
+*****************************************************************************************************************
+#check if status of service on a remote pc
+$Cred = Get-Credential -Credential "<your domain user here>"
+$ScriptBlock = {
+    param($Service)
+    Get-Service -Name "$Service"
+}
+$ServiceStatus = Invoke-Command -ComputerName $MachineName -Credential $Cred -ScriptBlock $ScriptBlock -ArgumentList "$Service"
+*********************************************************
+$cred = get-Credential -credential <your domain user here>
+Get-WMIObject Win32_Service -computer $computer -credential $cred
+*********************************************************
+Parameter Set: Default
+Get-Service [[-Name] <String[]> ] [-ComputerName <String[]> ] [-DependentServices] [-Exclude <String[]> ] [-Include <String[]> ] [-RequiredServices] [ <CommonParameters>]
+
+Parameter Set: DisplayName
+Get-Service -DisplayName <String[]> [-ComputerName <String[]> ] [-DependentServices] [-Exclude <String[]> ] [-Include <String[]> ] [-RequiredServices] [ <CommonParameters>]
+
+Parameter Set: InputObject
+Get-Service [-ComputerName <String[]> ] [-DependentServices] [-Exclude <String[]> ] [-Include <String[]> ] [-InputObject <ServiceController[]> ] [-RequiredServices] [ <CommonParameters>]
+********************************************************
+$servers = get-Content "C:\temp\servers.txt"
+
+Invoke-Command -ComputerName $servers {Get-Service DHCP} | Where-Object {$_.Status -eq 'Running'}
+*********************************************************
+if you need to identify on which particular computer(s), services exist, you can use the machinename property. In the above example, we are adding a machine name property in Pipeline.
+
+Get-Service -ComputerName Win7, TestPC | Where{$_.StartType -eq "Automatic"} |
+Select MachineName, Name, Status
+
+
+Get-Service -ComputerName Win7, TestPC | Where{$_.StartType -eq "Automatic"}
+**********************************************************
+#Check stopped services 
+Get-WMIObject Win32_Service -Computer localhost  | Where {$_.State -eq "Stopped"} | FT -Auto
+**********************************************************
+Start-Service <service name>
+Stop-Service <service name>
+Get-Service -computername DESKTOP-HQVAMA3
+*********************************************************
+##List Services with Specified Name
+Get-Service WinDef* 
+
+##List Only Currently Running Services 
+Get-Service | Where-Object {$_.Status -eq "Running"} 
+
+##List Service with Dependent Service
+Get-Service "WinDefend" -RequiredServices
+
+##List stopped services
+Get-Service | Where-Object{$_.Status -eq "Stopped"}
+############################
+#get service name
+Get-Service -Displayname "*Actian*"
+
+##Write Service List Into A File
+Get-Service | Out-File "C:\Users\İsmail Baydan\Desktop\Services.txt"
+
+##To stop the service using display name, use the parameter –DisplayName.
+Start-Service -DisplayName "Print Spooler" -Verbose
+
+##Start the service with display name 
+Get-Service -DisplayName "Print Spooler" | Start-Service -Verbose
+
+##Get-Service with the Select-Object Pipeline
+##You can retrieve the selected properties with the Select-Object (alias: Select) parameter.
+Get-Service winmgmt, winrm | Select Name, DisplayName, Starttype, Status
+
+##CIM to start service
+Get-CimInstance -ClassName Win32_Service  -Filter "StartMode='Auto' And State='Stopped'" | Invoke-CimMethod -MethodName StartServic
+
+
+***************************************************************************
+##Restart a service
+Get-Service "Sage CRE PEP Service"
+Start-Service "Sage CRE PEP Service" 
+
+## Restart a service with the Name parameter
+$serviceName = 'wuauserv'
+Stop-Service -Name $serviceName
+Start-Service -Name $serviceName
+**************************************************************************
+## Restart a service with the pipeline and PassThru parameter
+$serviceName = 'wuauserv'
+Stop-Service -Name $serviceName -Passthru | Start-Service
+***************************************************************************
+
+******************************************************************************************************************
+
+https://www.itechtics.com/view-list-windows-updates/ 
+
+https://www.thewindowsclub.com/check-windows-update-history-using-powershell 
+
+https://serverfault.com/questions/56953/how-do-i-generate-a-list-of-windows-patches-and-the-date-they-were-installed-on/57308
+
+https://automatizeblog.wordpress.com/2015/09/14/find-windows-updates-installed-after-a-certain-date-sorted-by-date/
+
+https://rakhesh.com/windows/get-a-list-of-recently-installed-windows-updates-via-the-command-line/
+
+
+“Success is not final, failure is not fatal; it is the courage to continue that counts." 
+
+https://www.altaro.com/msp-dojo/powershell-windows-updates/ 
+
+https://www.altaro.com/msp-dojo/powershell-windows-updates/ 
+
+
+##check system uptime
+$bootuptime = (Get-CimInstance -ClassName Win32_OperatingSystem).LastBootUpTime
+$CurrentDate = Get-Date
+$uptime = $CurrentDate - $bootuptime
+$uptime
+
+
+**************************************************************
+##check up time remote machines
+$servers = "Test1-Win2k12","Test1-Win2k16","ADDC"
+$currentdate = Get-Date
+foreach($server in $servers){
+$Bootuptime = (Get-CimInstance -ClassName Win32_OperatingSystem -ComputerName $server).LastBootUpTime
+   $uptime = $currentdate - $Bootuptime
+   Write-Output "$server Uptime : $($uptime.Days) Days, $($uptime.Hours) Hours, $($uptime.Minutes) Minutes"
+}
+
+##Last Boot up time###
+Get-CimInstance -ClassName Win32_OperatingSystem | Select LastBootUpTime 
+#########################
+##GetLastBoouptime#### 
+Get-CimInstance -ComputerName localhost -Class CIM_OperatingSystem -ErrorAction Stop | Select-Object CSName, LastBootUpTime
+###Get boot up another version, detailed version 
+Get-CimInstance -ComputerName localhost -Class CIM_OperatingSystem -ErrorAction Stop | Select-Object *
+
+
+********************************************************************************************************************************************************************************************************
+##check installed updates
+
+The below POSH oneliner lists all updates installed in the last 2 days and tabulates properties: Computername, KBArticle,InstalledOn, HotFixID and InstalledBy.
+
+Get-MSHotfix|Where-Object {$_.Installedon -gt ((Get-Date).Adddays(-2))}|Select-Object -Property Computername, KBArticle,InstalledOn, HotFixID, InstalledBy|Format-Table 
+
+
+$Session = New-Object -ComObject "Microsoft.Update.Session"
+$Searcher = $Session.CreateUpdateSearcher()
+$historyCount = $Searcher.GetTotalHistoryCount()
+$Searcher.QueryHistory(0, $historyCount) | Select-Object Title, Date
+****************************************************************************************************
+The below powershell command-line will output details about the hotfix with ID ‘2953522’.
+
+Get-MSHotfix|Where-Object {$_.HotfixID -match "KB2953522"}
+****************************************************************************************************
+wmic qfe list.
+
+
+get-wmiobject -class win32_quickfixengineering
+****************************************
+
+##Display services that are currently active
+Get-Service | Where-Object {$_.Status -eq "Running"}
+
+##Sort services by property value
+Get-Service "s*" | Sort-Object status
+
+##get service name status###
+Get-Service "Sage*","Pervas*"  | Sort-Object status
+#############################################
+##Get services that begin with a search string
+Get-Service "wmi*"
+
+##Display services that include a search string
+Get-Service -Displayname "*network*"
+
+##start a stopped service
+Start-Service DHCP
+
+
+
+******************************************************************************************************************
+##PS Commands Notes##
+##checked windows updates##
+get-wmiobject -class win32_quickfixengineering
+
+##check stopped services
+Get-Service | Where-Object {$_.Status -eq "Stopped"} 
+
+##Check Services running in auto --older powershell versions  
+Get-WmiObject -Class Win32_Service | Select-Object Name,State,StartMode | Where-Object {$_.State -ne "Running" -and $_.StartMode -eq "Auto"}
+
+##Check Services running in auto --newer powershell versions
+Get-Service | Select-Object -Property Name,Status,StartType | Where-Object {$_.Status -eq "Stopped" -and $_.StartType -eq "Automatic"} 
+
+
+##automatic start services not running
+$service = "*sophos*"
+$server = "<server_name>"
+$stoppedServices = (Get-WmiObject Win32_Service -ComputerName $server | Where-Object {$_.Name -like $service -and $_.StartMode -eq 'Auto' -and $_.State -ne "Running"}).Name
+foreach ($stoppedService in $stoppedServices) {
+  Write-Host -NoNewline "Starting Server/Service: "; Write-Host -ForegroundColor Green $server"/"$stoppedService
+  Get-Service -ComputerName $server -Name $stoppedService | Start-Service
+
+##one liner autostart stopped service
+  Get-Service | Where-Object {$_.Status -eq "Stopped"} | where starttype -match automatic  
+
+  
+
+##automatic starttype 
+  Get-Service | where{$_.StartType -eq "Automatic"} | Select Name, Starttype 
+
+##Manual starttype
+  Get-Service | where{$_.StartType -eq "Manual"} | Select Name, Starttype
+
+##disabled starttype
+  Get-Service | where{$_.StartType -eq "Disabled"} | Select Name, Starttype
+
+
+
+
+
+##start a stopped service
+Start-Service
+*************************************************************************************************
+##Get uptime of machine 
+systeminfo | find "System Boot Time:"
+
+**************************************************************************************************
+param(
+    [Parameter(Mandatory=$true)][string]$ServerName 
+    )
+Get-WMiObject -Class Win32_OperatingSystem -ComputerName $ServerName | 
+Select-Object -Property CSName,@{n="Last Boot Time";
+e={[Management.ManagementDateTimeConverter]::ToDateTime($_.LastBootUpTime)}}
+********************************************************************************************** 
+reboot multiple machines 
+
+Restart-Computer -ComputerName Server01, Server02, localhost 
+
+
+It might be due to various issues.I cant say which one is there in your case.
+
+Below given reasons may be there:
+
+DCOM is not enabled in host PC or target PC or on both.
+Your Firewall or even your antivirus is preventing the access.
+Any WMI related service is disabled.
+Some WMI related services are as given:
+
+Remote Access Auto Connection Manager
+Remote Access Connection Manager
+Remote Procedure Call (RPC)
+Remote Procedure Call (RPC) Locator
+Remote Registry
+For DCOM setting refer:
+
+Key: HKLM\Software\Microsoft\OLE, Value: EnableDCOM 
+
+Check that the "Windows Management Instrumentation (WMI-In)" rule is enabled in the firewall for each remote machine.
+
+Or in an Administrative Command/Powershell prompt run: 
+
+
+
+netsh advfirewall firewall set rule group="Windows Management Instrumentation (WMI)" new enable=yes
+
+******************************************************************************************************
+Restart a remote computer and wait for PowerShell
+Restart-Computer -ComputerName Server01 -Wait -For PowerShell -Timeout 300 -Delay 2 -Force
+Restart-Computer -ComputerName SSRS-Server -Wait -For PowerShell -Timeout 300 -Delay 2 -Force
+
+Restart a computer by using WsmanAuthentication
+Restart-Computer -ComputerName Server01 -WsmanAuthentication Kerberos -Force 
+
+****************************************************************************************************
+
+******************************************************************************************************************
+UTILIZATION -cpu / memory 
+
+$properties=@(
+    @{Name="Process Name"; Expression = {$_.name}},
+    @{Name="CPU (%)"; Expression = {$_.PercentProcessorTime}},    
+    @{Name="Memory (MB)"; Expression = {[Math]::Round(($_.workingSetPrivate / 1mb),2)}}
+)
+Get-WmiObject -class Win32_PerfFormattedData_PerfProc_Process | 
+    Select-Object $properties |
+    Format-Table -AutoSize
+
+******************************************************************************************************************
+
+###Get CPU process####
+(Get-Counter '\Process(*)\% Processor Time').CounterSamples | Where-Object {$_.CookedValue -gt 5}
+
+Get-Process | Sort CPU -descending | Select -first 10 -Property ID,ProcessName,CPU | format-table
+
+
+************************************************************
+##Get CPU usage by percent
+$properties=@(
+    @{Name="Process Name"; Expression = {$_.name}},
+    @{Name="CPU (%)"; Expression = {$_.PercentProcessorTime}},    
+    @{Name="Memory (MB)"; Expression = {[Math]::Round(($_.workingSetPrivate / 1mb),2)}}
+)
+Get-WmiObject -class Win32_PerfFormattedData_PerfProc_Process | 
+    Select-Object $properties |
+    Format-Table -AutoSize 
+*******************************************************************
+
+##Get CPU usage by percent descending 
+$properties=@(
+    @{Name="Process Name"; Expression = {$_.name}},
+    @{Name="CPU (%)"; Expression = {$_.PercentProcessorTime}},    
+    @{Name="Memory (MB)"; Expression = {[Math]::Round(($_.workingSetPrivate / 1mb),2)}}
+)
+Get-WmiObject -class Win32_PerfFormattedData_PerfProc_Process | 
+    Select-Object $properties |
+    Format-Table -AutoSize    
+****************************************************************************************************
+##check if service is running, if stopped then restart  
+BITS, VSS, vmicvss 
+
+##start the following windows services 
+[Array] $Services = 'BITS', 'VSS', 'vmicvss';
+
+##loop through each services if its not running, start it 
+foreach($ServiceName in $Services)
+{
+    $arrService = Get-Service -Name $serviceName 
+    write-host $serviceName
+    while ($arrService.Status -ne 'Running')
+    {
+        Start-Service $serviceName
+        write-host $arrService.Status
+        write-host 'Service starting'
+        Start-Sleep -seconds 60
+        $arrService.Refresh()
+        if($arrService.Status -eq 'Running')
+        {
+            Write-Host 'Service is now Running'
+        }
+
+    }
+
+
+
+}
+
+# stop the following Windows services in the specified order:
+[Array] $Services = 'Service1','Service2','Service3','Service4','Service5';
+
+# loop through each service, if its running, stop it
+foreach($ServiceName in $Services)
+{
+    $arrService = Get-Service -Name $ServiceName
+    write-host $ServiceName
+    while ($arrService.Status -eq 'Running')
+    {
+        Stop-Service $ServiceName
+        write-host $arrService.status
+        write-host 'Service stopping'
+        Start-Sleep -seconds 60
+        $arrService.Refresh()
+        if ($arrService.Status -eq 'Stopped')
+            {
+              Write-Host 'Service is now Stopped'
+            }
+     }
+ }
+
+****************************************************************************************************
+
+****************************************************************************************************
+####Get the service running on computers 
+###remote 
+Get-Service -ComputerName Name | Where($_.StartType -eq "Automatic") 
+###local
+Get-Service | Where{$_.StartType -eq "Automatic"} | Select Name, StartType  
+
+
+
+
+###CPU Load
+$ProcessName = "svchost"
+(Get-CimInstance win32_process -Filter "name like '%$ProcessName%'" | select ProcessId,Name,commandline)
+*******************************************************************
+
+##Get CPU usage by process for remote pc## ***********
+gwmi Win32_PerfFormattedData_PerfProc_Process -filter "Name <> '_Total' and Name <> 'Idle'" -Computer $servername | where { $_.PercentProcessorTime -gt 0 } | select Name, PercentProcessorTime 
+
+##Get CPU usage by process## ***********
+gwmi Win32_PerfFormattedData_PerfProc_Process -filter "Name <> '_Total' and Name <> 'Idle'" -Computer localhost | where { $_.PercentProcessorTime -gt 0 } | select Name, PercentProcessorTime 
+
+
+##Get CPU utilization best code********
+Get-Counter -ErrorAction SilentlyContinue '\Process(*)\% Processor Time' | Select-Object -ExpandProperty countersamples| Select-Object -Property instancename, cookedvalue| ? {$_.instanceName -notmatch "^(idle|_total|system)$"} | Sort-Object -Property cookedvalue -Descending| Select-Object -First 10| ft InstanceName,@{L='CPU';E={($_.Cookedvalue/100/$env:NUMBER_OF_PROCESSORS).toString('P')}} -AutoSize
+
+#Get Memory Usage in exact percentage*******
+$CompObject =  Get-WmiObject -Class WIN32_OperatingSystem
+ $Memory = ((($CompObject.TotalVisibleMemorySize - $CompObject.FreePhysicalMemory)*100)/ $CompObject.TotalVisibleMemorySize)
+
+##Get memory usage in MB*************best code
+$processMemoryUsage = Get-WmiObject WIN32_PROCESS | Sort-Object -Property ws -Descending | Select-Object -first 5 processname, @{Name="Mem Usage(MB)";Expression={[math]::round($_.ws / 1mb)}}
+ $processMemoryUsage
+
+###*****************************
+
+
+##check status of vss writer 
+vssadmin list writers | Select-String -Context 0,4 '^writer name:' | ? {
+    $_.Context.PostContext[2].Trim() -ne "last error: no error"
+  } | ft line, pattern 
+*********************************************************************************
+#get profiles and adapters
+$Profiles = Get-NetConnectionProfile
+$Adapters = Get-NetAdapter -Physical
+
+#loop on adapters
+$Results = $Adapters | ForEach-Object {
+    #get the current adapter
+    $Adapter = $PSItem
+    #find the associated profiles
+    $AdapterProfiles = $Profiles | where {$Adapter.ifIndex -eq $_.InterfaceIndex}
+
+    #output the merged results by looping on the profiles
+    $AdapterProfiles | 
+         Select-Object @{n='Name';e={$Adapter.Name}},
+                       @{n='DeviceName';e={$Adapter.DeviceName}},
+                       @{n='InterfaceDescription';e={$Adapter.InterfaceDescription}},
+                       @{n='Status';e={$adapter.Status}},
+                       IPv4Connectivity,
+                       NetworkCategory
+}
+
+
+$results | Format-Table  
+
+$results | Out-GridView 
+
+********************************************************************************************
+
+##Get Status of network adapter 
+Get-NetAdapter | select Name,Status, LinkSpeed 
+
+
+Get-NetRoute | ? DestinationPrefix -eq '0.0.0.0/0' | Get-NetIPInterface | Where ConnectionState -eq 'Connected' 
+
+Get-NetConnectionProfile 
+
+
+
+Get-process | Sort PrivateMemorySize -Descending | Select Name,PrivateMemorySize -First 10
+
+##Get Memory usage
+$cores = (Get-WmiObject Win32_Processor).NumberOfLogicalProcessors
+while ($true) {
+    Get-WmiObject Win32_PerfFormattedData_PerfProc_Process | 
+    Where-Object {$_.Name -notmatch "^(idle|_total|system)$" -and $_.PercentProcessorTime -gt 0} |
+    Format-Table -Autosize -Property @{Name = "CPU"; Expression = {[int]($_.PercentProcessorTime/$cores)}}, Name, @{Name = "PID"; Expression = {$_.IDProcess}}, @{"Name" = "WSP(MB)"; Expression = {[int]($_.WorkingSetPrivate/1mb)}}
+    Start-Sleep 5
+}
+
+$os | Select @{Name = "PctFree"; Expression = {$pctFree}},
+@{Name = "FreeGB";Expression = {[math]::Round($_.FreePhysicalMemory/1mb,2)}},
+@{Name = "TotalGB";Expression = {[int]($_.TotalVisibleMemorySize/1mb)}} 
+
+
+$ProcessList = Get-WmiObject Win32_Process -ComputerName mycomputername
+foreach ($Process in $ProcessList) {
+    write-host $Process.Handle "::" $Process.Name "::" $Process.WorkingSetSize
+}
+
+
+$ProcessList = Get-Process | Sort-Object -Descending WS
+Write-Host $ProcessList[0].Handle "::" $Process.ProcessName "::" $Process.WorkingSet 
+
+
+
+Get-Process | Sort-Object -Descending WS | select -first 1 | select -ExpandProperty ProcessName
+
+
+##Alterante code,event log *****
+Get-WinEvent -LogName 'Application' -MaxEvents 15 
+
+Get-WinEvent -LogName 'System' -MaxEvents 15
+
+##check login/log off time
+Get-EventLog system -after (get-date).AddDays(-1) | where {$_.InstanceId -eq 7001} 
+
+##checked when the computer was turned on a specific date
+$today = get-date -Hour 0 -Minute 0;
+Get-EventLog system -after $today | sort -Descending | select -First 1 
+
+Get-NetAdapter 
+
+Get-NetAdapter -physical | where status -eq 'up' 
+
+******* ****** ******
+Get-WinEvent -FilterHashTable @{LogName = "Application", "System"; Level=1,2; StartTime=((Get-Date).AddDays(-7))} | Out-GridView
+
+events 
+Get-WinEvent -FilterHashTable @{LogName = "Application", "System"; Level=1,2; StartTime=((Get-Date).AddDays(-7))} | Format-Table -wrap 
+****** ***** *******
+
+$logs = get-eventlog system -ComputerName <name of the monitored computer> -source Microsoft-Windows-Winlogon -After (Get-Date).AddDays(-7);
+$res = @(); ForEach ($log in $logs) {if($log.instanceid -eq 7001) {$type = "Logon"} Elseif ($log.instanceid -eq 7002){$type="Logoff"} Else {Continue} $res += New-Object PSObject -Property @{Time = $log.TimeWritten; "Event" = $type; User = (New-Object System.Security.Principal.SecurityIdentifier $Log.ReplacementStrings[1]).Translate([System.Security.Principal.NTAccount])}};
+$res
